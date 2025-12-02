@@ -7,6 +7,10 @@ via MAVLink telemetry.
 
 import time
 import sys
+import os
+
+# Add project root to path so we can import telemetry module
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     from telemetry.mavlink_telemetry import MAVLinkTelemetry
@@ -18,12 +22,13 @@ except ImportError:
     sys.exit(1)
 
 
-def test_qgc_connection(duration=60):
+def test_qgc_connection(duration=60, auto_start=False):
     """
     Test QGroundControl connection by streaming telemetry data.
     
     Args:
         duration: How long to run the test (seconds)
+        auto_start: Skip the "Press Enter" prompt
     """
     print("\n=== QGroundControl Connection Test ===\n")
     print("This test streams simulated telemetry data to QGroundControl.\n")
@@ -37,13 +42,15 @@ def test_qgc_connection(duration=60):
     print("4. Connect to the new link")
     print("5. You should see the vehicle appear with telemetry data\n")
     
-    input("Press Enter when QGroundControl is ready...")
+    if not auto_start:
+        input("Press Enter when QGroundControl is ready...")
     
     print("\nStarting telemetry stream...")
     print("Broadcasting on UDP port 14550\n")
     
-    # Initialize telemetry
-    telemetry = MAVLinkTelemetry()
+    # Initialize telemetry - send TO QGC listening on 14550
+    # udpout means we send packets out to QGC's listening port
+    telemetry = MAVLinkTelemetry(port='udpout:127.0.0.1:14550')
     
     start_time = time.time()
     packet_count = 0
@@ -56,15 +63,35 @@ def test_qgc_connection(duration=60):
             import math
             roll = 10 * math.sin(elapsed * 0.5)
             pitch = 5 * math.cos(elapsed * 0.3)
-            yaw = elapsed * 10 % 360
             
             # Simulate altitude change
             altitude = 2 + math.sin(elapsed * 0.2)
             
+            # Simulate velocity (larger circular motion for visible speed)
+            vx = 5.0 * math.cos(elapsed * 0.3)  # m/s in X direction (up to 11 mph)
+            vy = 5.0 * math.sin(elapsed * 0.3)  # m/s in Y direction
+            vz = 1.0 * math.cos(elapsed * 0.2)  # m/s vertical velocity (up to 3.3 ft/s)
+            
+            # Calculate heading from velocity vector (direction of travel)
+            # In NED frame: North=0°, East=90°, atan2 gives angle from East
+            yaw = (90 - math.degrees(math.atan2(vy, vx))) % 360  # Convert to North-referenced heading
+            
+            # Simulate position change (integrate velocity)
+            # This creates a circular flight path
+            x_pos = 16.67 * math.sin(elapsed * 0.3)  # meters (integral of vx)
+            y_pos = -16.67 * math.cos(elapsed * 0.3)  # meters (integral of vy)
+            
+            # Convert position to lat/lon offset (approximate: 1 degree lat = 111km)
+            lat_offset = (y_pos / 111000.0) * 1e7  # degrees * 1e7
+            lon_offset = (x_pos / (111000.0 * math.cos(math.radians(37.7749)))) * 1e7  # degrees * 1e7
+            
+            current_lat = int(37.7749 * 1e7 + lat_offset)
+            current_lon = int(-122.4194 * 1e7 + lon_offset)
+            
             # Send telemetry at different rates
             
             # High rate (10 Hz) - Attitude
-            telemetry.send_heartbeat()
+            telemetry.send_heartbeat(armed=True)  # Set armed=True to enable all displays
             telemetry.send_attitude(
                 roll=math.radians(roll),
                 pitch=math.radians(pitch),
@@ -75,17 +102,52 @@ def test_qgc_connection(duration=60):
             )
             packet_count += 2
             
-            # Medium rate (5 Hz) - Position
+            # Medium rate (5 Hz) - Position and GPS
             if int(elapsed * 5) != int((elapsed - 0.1) * 5):
-                telemetry.send_local_position(
-                    x=0.0,
-                    y=0.0,
+                # Calculate ground speed
+                groundspeed = math.sqrt(vx*vx + vy*vy)  # m/s
+                
+                telemetry.send_position(
+                    x=x_pos,
+                    y=y_pos,
                     z=-altitude,  # NED frame (down is negative)
-                    vx=0.0,
-                    vy=0.0,
-                    vz=0.0
+                    vx=vx,
+                    vy=vy,
+                    vz=-vz  # NED: negative is up
                 )
-                packet_count += 1
+                # Send GPS data with moving position
+                telemetry.send_gps(
+                    lat=current_lat,
+                    lon=current_lon,
+                    alt=int(altitude * 1000),  # Altitude in mm above sea level
+                    vx=int(vx * 100),  # Ground speed X in cm/s
+                    vy=int(vy * 100),  # Ground speed Y in cm/s
+                    vz=int(-vz * 100),  # Ground speed Z in cm/s (NED)
+                    hdg=int(yaw * 100),  # Heading in degrees * 100
+                    fix_type=3,  # 3D GPS fix
+                    satellites_visible=12
+                )
+                # Send global position with moving coordinates
+                telemetry.send_global_position(
+                    lat=current_lat,
+                    lon=current_lon,
+                    alt=int(altitude * 1000),  # mm above MSL
+                    relative_alt=int(altitude * 1000),  # mm above home
+                    vx=int(vx * 100),  # Ground speed X in cm/s
+                    vy=int(vy * 100),  # Ground speed Y in cm/s
+                    vz=int(-vz * 100),  # Ground speed Z in cm/s (NED)
+                    hdg=int(yaw * 100)
+                )
+                # Send VFR HUD for speed displays
+                telemetry.send_vfr_hud(
+                    airspeed=groundspeed,  # Use groundspeed as airspeed (no wind)
+                    groundspeed=groundspeed,
+                    heading=int(yaw),
+                    throttle=50,  # 50% throttle
+                    alt=altitude,
+                    climb=-vz  # NED: negative vz means climbing
+                )
+                packet_count += 4
             
             # Low rate (1 Hz) - System status
             if int(elapsed) != int(elapsed - 0.1):
@@ -96,9 +158,7 @@ def test_qgc_connection(duration=60):
                     current_battery=1500,  # mA
                     battery_remaining=battery_remaining
                 )
-                telemetry.send_rc_channels(
-                    chan1_raw=1500, chan2_raw=1500, chan3_raw=1500, chan4_raw=1500
-                )
+                telemetry.send_rc_channels([1500, 1500, 1500, 1500])
                 telemetry.send_servo_output([1500, 1500, 1500, 1500, 1500, 1500])
                 packet_count += 3
                 
@@ -124,7 +184,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Test QGroundControl connection')
     parser.add_argument('--duration', type=int, default=60, 
                        help='Test duration in seconds (default: 60)')
+    parser.add_argument('--auto-start', action='store_true',
+                       help='Skip the confirmation prompt and start immediately')
     
     args = parser.parse_args()
     
-    test_qgc_connection(duration=args.duration)
+    test_qgc_connection(duration=args.duration, auto_start=args.auto_start)

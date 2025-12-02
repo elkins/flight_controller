@@ -194,6 +194,102 @@ class MAVLinkTelemetry:
         except Exception as e:
             print(f"✗ Failed to send position: {e}")
     
+    def send_gps(self, lat, lon, alt, vx=0, vy=0, vz=0, hdg=65535, fix_type=3, satellites_visible=10):
+        """
+        Send GPS_RAW_INT message (required for QGC altitude display)
+        
+        Args:
+            lat: Latitude in degrees * 1e7 (e.g., 37.7749 * 1e7)
+            lon: Longitude in degrees * 1e7 (e.g., -122.4194 * 1e7)
+            alt: Altitude in mm above MSL
+            vx: GPS ground speed X (cm/s)
+            vy: GPS ground speed Y (cm/s)
+            vz: GPS ground speed Z (cm/s)
+            hdg: Heading in degrees * 100 (65535 = unknown)
+            fix_type: GPS fix type (0=no fix, 3=3D fix)
+            satellites_visible: Number of visible satellites
+        """
+        if not self.connected:
+            return
+        
+        try:
+            self.connection.mav.gps_raw_int_send(
+                time_usec=self.get_time_boot_ms() * 1000,
+                fix_type=fix_type,
+                lat=int(lat),
+                lon=int(lon),
+                alt=int(alt),
+                eph=100,  # GPS HDOP horizontal dilution of position
+                epv=100,  # GPS VDOP vertical dilution of position
+                vel=int(math.sqrt(vx*vx + vy*vy)),  # Ground speed (cm/s)
+                cog=hdg,  # Course over ground (degrees * 100)
+                satellites_visible=satellites_visible
+            )
+            self.packets_sent += 1
+        except Exception as e:
+            print(f"✗ Failed to send GPS: {e}")
+    
+    def send_global_position(self, lat, lon, alt, relative_alt, vx=0, vy=0, vz=0, hdg=65535):
+        """
+        Send GLOBAL_POSITION_INT message (required for QGC to display altitude/speed)
+        
+        Args:
+            lat: Latitude in degrees * 1e7
+            lon: Longitude in degrees * 1e7
+            alt: Altitude above MSL in mm
+            relative_alt: Altitude above home in mm
+            vx: Ground speed X in cm/s
+            vy: Ground speed Y in cm/s
+            vz: Ground speed Z in cm/s
+            hdg: Heading in degrees * 100
+        """
+        if not self.connected:
+            return
+        
+        try:
+            self.connection.mav.global_position_int_send(
+                time_boot_ms=self.get_time_boot_ms(),
+                lat=int(lat),
+                lon=int(lon),
+                alt=int(alt),
+                relative_alt=int(relative_alt),
+                vx=int(vx),
+                vy=int(vy),
+                vz=int(vz),
+                hdg=int(hdg) if hdg != 65535 else 65535
+            )
+            self.packets_sent += 1
+        except Exception as e:
+            print(f"✗ Failed to send global position: {e}")
+    
+    def send_vfr_hud(self, airspeed, groundspeed, heading, throttle, alt, climb):
+        """
+        Send VFR_HUD message (required for QGC speed displays)
+        
+        Args:
+            airspeed: Current airspeed in m/s
+            groundspeed: Current ground speed in m/s
+            heading: Current heading in degrees (0-360)
+            throttle: Current throttle % (0-100)
+            alt: Current altitude in meters (MSL)
+            climb: Current climb rate in m/s
+        """
+        if not self.connected:
+            return
+        
+        try:
+            self.connection.mav.vfr_hud_send(
+                airspeed=airspeed,
+                groundspeed=groundspeed,
+                heading=int(heading),
+                throttle=int(throttle),
+                alt=alt,
+                climb=climb
+            )
+            self.packets_sent += 1
+        except Exception as e:
+            print(f"✗ Failed to send VFR HUD: {e}")
+    
     def send_sys_status(self, voltage_battery=0, current_battery=0, battery_remaining=-1,
                        cpu_load=0, sensors_health=0xFFFFFFFF):
         """
