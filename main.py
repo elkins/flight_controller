@@ -1,94 +1,300 @@
-# main.py -- put your code here!
+"""
+Flight Controller Main Module
+
+This module implements a hexacopter flight controller using MPU6050 IMU,
+PID control loops, RC receiver input, and ESC motor control.
+
+Architecture:
+- Cascaded PID control (stabilization + rate)
+- 6 motors in hexacopter configuration
+- 4-channel RC input (throttle, roll, pitch, yaw)
+"""
+
 from mpu6050 import MPU6050
 from pid import PID
-from rc import RC, _map, wrap_180
+from rc import RC, map_range, wrap_180
 from esc import ESC
 
-# MPU
-mpu = MPU6050()
-mpu.dmpInitialize()
-mpu.setDMPEnabled(True)
-packetSize = mpu.dmpGetFIFOPacketSize() 
 
-# PID
-rr_pid = PID(p=0.7, i=1, imax=50)
-pr_pid = PID(p=0.7, i=1, imax=50)
-yr_pid = PID(p=2.7, i=1, imax=50)
-rs_pid = PID(p=4.5)
-ps_pid = PID(p=4.5)
-ys_pid = PID(p=10)
+# ============================================================================
+# CONFIGURATION CONSTANTS
+# ============================================================================
 
-# RC
-rc_thr = RC(0)  # throttle
-rc_rol = RC(1)  # roll
-rc_pit = RC(2)  # pitch
-rc_yaw = RC(3)  # yaw
+class PIDConfig:
+    """PID controller tuning parameters"""
+    # Rate PIDs (inner loop - gyro rates)
+    ROLL_RATE_P = 0.7
+    ROLL_RATE_I = 1.0
+    ROLL_RATE_IMAX = 50
+    
+    PITCH_RATE_P = 0.7
+    PITCH_RATE_I = 1.0
+    PITCH_RATE_IMAX = 50
+    
+    YAW_RATE_P = 2.7
+    YAW_RATE_I = 1.0
+    YAW_RATE_IMAX = 50
+    
+    # Stabilization PIDs (outer loop - angles)
+    ROLL_STAB_P = 4.5
+    PITCH_STAB_P = 4.5
+    YAW_STAB_P = 10.0
 
-# ESC
-esc_0 = ESC(0)
-esc_1 = ESC(1)
-esc_2 = ESC(2)
-esc_3 = ESC(3)
-esc_4 = ESC(4)
-esc_5 = ESC(5)
 
-yaw_target = 0
-while True:
-  # MPU
-  mpuIntStatus = mpu.getIntStatus()
-  fifoCount = mpu.getFIFOCount()
-  if mpuIntStatus < 2 or fifoCount == 1024:
-    mpu.resetFIFO()
-    print('FIFO overflow!')
-    continue
-  while fifoCount < packetSize:
-    fifoCount = mpu.getFIFOCount()
-  fifoCount -= packetSize
-  fifoBuffer = mpu.getFIFOBytes(packetSize)
-  yaw, rol, pit = mpu.dmpGetEuler(*mpu.dmpGetQuaternion(fifoBuffer))
-  g_pit, g_rol, g_yaw = mpu.dmpGetGyro(fifoBuffer)
-  yaw -= 6
-  #print(rol, pit, yaw, g_rol, g_pit, g_yaw)
-  # RC
-  #print('%s  %s  %s  %s' % (rc_thr.get_width(), rc_rol.get_width(), rc_pit.get_width(), rc_yaw.get_width()))
-  rc_thr_width = rc_thr.get_width()
-  rc_rol_width = _map(rc_rol.get_width(), 995, 1945, -45, 45)
-  rc_pit_width = _map(rc_pit.get_width(), 995, 1945, -45, 45)
-  rc_yaw_width = _map(rc_yaw.get_width(), 995, 1945, -180, 180)
-  #print('%s  %s  %s' % (rc_rol_width, rc_pit_width, rc_yaw_width))
-  if rc_thr_width > 1200:
-    # Stablise PIDS
-    rol_stab_out = max(min(rs_pid.get_pid(rc_rol_width + rol, 1), 250), -250)
-    pit_stab_out = max(min(ps_pid.get_pid(rc_pit_width + pit, 1), 250), -250)
-    yaw_stab_out = max(min(ys_pid.get_pid(wrap_180(yaw_target + yaw), 1), 360), -360)
-    #print('%s  %s  %s' % (rol_stab_out, pit_stab_out, yaw_stab_out))
-    if abs(rc_yaw_width) > 5:
-      yaw_stab_out = rc_yaw_width
-      yaw_target = yaw
-    # rate PIDS
-    rol_out = max(min(rr_pid.get_pid(rol_stab_out + g_rol, 1), 500), -500)
-    pit_out = max(min(pr_pid.get_pid(pit_stab_out + g_pit, 1), 500), -500)
-    yaw_out = max(min(yr_pid.get_pid(yaw_stab_out + g_yaw, 1), 500), -500)
-    #print('%s  %s  %s' % (rol_out, pit_out, yaw_out))
-    # ESC
-    yaw_out = rc_yaw_width
-    esc_0.move(rc_thr_width - (0.866 * pit_out) + (0.5 * rol_out) - yaw_out)
-    esc_1.move(rc_thr_width - (0.866 * pit_out) - (0.5 * rol_out) + yaw_out)
-    esc_2.move(rc_thr_width - rol_out - yaw_out)
-    esc_3.move(rc_thr_width + (0.866 * pit_out) - (0.5 * rol_out) + yaw_out)
-    esc_4.move(rc_thr_width + (0.866 * pit_out) + (0.5 * rol_out) - yaw_out)
-    esc_5.move(rc_thr_width + rol_out + yaw_out)
-  else:
-    esc_0.move(rc_thr_width)
-    esc_1.move(rc_thr_width)
-    esc_2.move(rc_thr_width)
-    esc_3.move(rc_thr_width)
-    esc_4.move(rc_thr_width)
-    esc_5.move(rc_thr_width)
-    yaw_target = yaw
-    rr_pid.reset_I()
-    pr_pid.reset_I()
-    yr_pid.reset_I()
-    ps_pid.reset_I()
-    rs_pid.reset_I()
-    ys_pid.reset_I()
+class RCConfig:
+    """RC receiver channel configuration"""
+    THROTTLE_CHANNEL = 0
+    ROLL_CHANNEL = 1
+    PITCH_CHANNEL = 2
+    YAW_CHANNEL = 3
+    
+    # RC input mapping
+    RC_MIN = 995
+    RC_MAX = 1945
+    ANGLE_MIN = -45
+    ANGLE_MAX = 45
+    YAW_MIN = -180
+    YAW_MAX = 180
+    
+    # Flight modes
+    THROTTLE_ARM_THRESHOLD = 1200
+
+
+class FlightConfig:
+    """Flight control limits"""
+    STAB_OUTPUT_LIMIT = 250
+    YAW_STAB_OUTPUT_LIMIT = 360
+    RATE_OUTPUT_LIMIT = 500
+    YAW_DEADBAND = 5  # degrees
+    
+    # IMU calibration offset
+    YAW_OFFSET = -6
+
+
+# ============================================================================
+# HARDWARE INITIALIZATION
+# ============================================================================
+
+class FlightController:
+    """Main flight controller class"""
+    
+    def __init__(self):
+        """Initialize all flight controller components"""
+        # IMU
+        self.mpu = MPU6050()
+        self.mpu.dmpInitialize()
+        self.mpu.setDMPEnabled(True)
+        self.packet_size = self.mpu.dmpGetFIFOPacketSize()
+        
+        # Rate PIDs (inner loop)
+        self.roll_rate_pid = PID(
+            p=PIDConfig.ROLL_RATE_P,
+            i=PIDConfig.ROLL_RATE_I,
+            imax=PIDConfig.ROLL_RATE_IMAX
+        )
+        self.pitch_rate_pid = PID(
+            p=PIDConfig.PITCH_RATE_P,
+            i=PIDConfig.PITCH_RATE_I,
+            imax=PIDConfig.PITCH_RATE_IMAX
+        )
+        self.yaw_rate_pid = PID(
+            p=PIDConfig.YAW_RATE_P,
+            i=PIDConfig.YAW_RATE_I,
+            imax=PIDConfig.YAW_RATE_IMAX
+        )
+        
+        # Stabilization PIDs (outer loop)
+        self.roll_stab_pid = PID(p=PIDConfig.ROLL_STAB_P)
+        self.pitch_stab_pid = PID(p=PIDConfig.PITCH_STAB_P)
+        self.yaw_stab_pid = PID(p=PIDConfig.YAW_STAB_P)
+        
+        # RC Receiver
+        self.rc_throttle = RC(RCConfig.THROTTLE_CHANNEL)
+        self.rc_roll = RC(RCConfig.ROLL_CHANNEL)
+        self.rc_pitch = RC(RCConfig.PITCH_CHANNEL)
+        self.rc_yaw = RC(RCConfig.YAW_CHANNEL)
+        
+        # ESCs (6 motors for hexacopter)
+        self.motors = [ESC(i) for i in range(6)]
+        
+        # State variables
+        self.yaw_target = 0
+    
+    def reset_integrators(self):
+        """Reset all PID integrators (when disarmed)"""
+        self.roll_rate_pid.reset_I()
+        self.pitch_rate_pid.reset_I()
+        self.yaw_rate_pid.reset_I()
+        self.roll_stab_pid.reset_I()
+        self.pitch_stab_pid.reset_I()
+        self.yaw_stab_pid.reset_I()
+    
+    def set_all_motors(self, throttle):
+        """Set all motors to the same throttle value"""
+        for motor in self.motors:
+            motor.move(throttle)
+    
+    def run(self):
+        """Main flight control loop"""
+        while True:
+            # Read IMU data
+            imu_data = self._read_imu()
+            if imu_data is None:
+                continue
+            
+            yaw, roll, pitch, gyro_pitch, gyro_roll, gyro_yaw = imu_data
+            
+            # Read RC inputs
+            rc_inputs = self._read_rc()
+            
+            # Check if armed (throttle above threshold)
+            if rc_inputs['throttle'] > RCConfig.THROTTLE_ARM_THRESHOLD:
+                self._armed_mode(yaw, roll, pitch, gyro_pitch, gyro_roll, gyro_yaw, rc_inputs)
+            else:
+                self._disarmed_mode(yaw, rc_inputs['throttle'])
+    
+    def _read_imu(self):
+        """Read and process IMU data from MPU6050"""
+        mpu_int_status = self.mpu.getIntStatus()
+        fifo_count = self.mpu.getFIFOCount()
+        
+        # Check for FIFO overflow or invalid data
+        if mpu_int_status < 2 or fifo_count == 1024:
+            self.mpu.resetFIFO()
+            print('FIFO overflow!')
+            return None
+        
+        # Wait for complete packet
+        while fifo_count < self.packet_size:
+            fifo_count = self.mpu.getFIFOCount()
+        
+        # Read FIFO data
+        fifo_count -= self.packet_size
+        fifo_buffer = self.mpu.getFIFOBytes(self.packet_size)
+        
+        # Extract orientation data
+        yaw, roll, pitch = self.mpu.dmpGetEuler(*self.mpu.dmpGetQuaternion(fifo_buffer))
+        gyro_pitch, gyro_roll, gyro_yaw = self.mpu.dmpGetGyro(fifo_buffer)
+        
+        # Apply calibration offset
+        yaw += FlightConfig.YAW_OFFSET
+        
+        return (yaw, roll, pitch, gyro_pitch, gyro_roll, gyro_yaw)
+    
+    def _read_rc(self):
+        """Read RC receiver inputs"""
+        throttle = self.rc_throttle.get_width()
+        roll = map_range(
+            self.rc_roll.get_width(),
+            RCConfig.RC_MIN, RCConfig.RC_MAX,
+            RCConfig.ANGLE_MIN, RCConfig.ANGLE_MAX
+        )
+        pitch = map_range(
+            self.rc_pitch.get_width(),
+            RCConfig.RC_MIN, RCConfig.RC_MAX,
+            RCConfig.ANGLE_MIN, RCConfig.ANGLE_MAX
+        )
+        yaw = map_range(
+            self.rc_yaw.get_width(),
+            RCConfig.RC_MIN, RCConfig.RC_MAX,
+            RCConfig.YAW_MIN, RCConfig.YAW_MAX
+        )
+        
+        return {
+            'throttle': throttle,
+            'roll': roll,
+            'pitch': pitch,
+            'yaw': yaw
+        }
+    
+    def _armed_mode(self, yaw, roll, pitch, gyro_pitch, gyro_roll, gyro_yaw, rc_inputs):
+        """Execute armed flight control mode"""
+        # Stabilization PIDs (outer loop) - convert angle error to rate target
+        roll_stab_out = self._clamp(
+            self.roll_stab_pid.get_pid(rc_inputs['roll'] + roll, 1),
+            -FlightConfig.STAB_OUTPUT_LIMIT,
+            FlightConfig.STAB_OUTPUT_LIMIT
+        )
+        pitch_stab_out = self._clamp(
+            self.pitch_stab_pid.get_pid(rc_inputs['pitch'] + pitch, 1),
+            -FlightConfig.STAB_OUTPUT_LIMIT,
+            FlightConfig.STAB_OUTPUT_LIMIT
+        )
+        yaw_stab_out = self._clamp(
+            self.yaw_stab_pid.get_pid(wrap_180(self.yaw_target + yaw), 1),
+            -FlightConfig.YAW_STAB_OUTPUT_LIMIT,
+            FlightConfig.YAW_STAB_OUTPUT_LIMIT
+        )
+        
+        # Check if pilot commanding yaw change
+        if abs(rc_inputs['yaw']) > FlightConfig.YAW_DEADBAND:
+            yaw_stab_out = rc_inputs['yaw']
+            self.yaw_target = yaw
+        
+        # Rate PIDs (inner loop) - convert rate error to motor output
+        roll_out = self._clamp(
+            self.roll_rate_pid.get_pid(roll_stab_out + gyro_roll, 1),
+            -FlightConfig.RATE_OUTPUT_LIMIT,
+            FlightConfig.RATE_OUTPUT_LIMIT
+        )
+        pitch_out = self._clamp(
+            self.pitch_rate_pid.get_pid(pitch_stab_out + gyro_pitch, 1),
+            -FlightConfig.RATE_OUTPUT_LIMIT,
+            FlightConfig.RATE_OUTPUT_LIMIT
+        )
+        yaw_out = self._clamp(
+            self.yaw_rate_pid.get_pid(yaw_stab_out + gyro_yaw, 1),
+            -FlightConfig.RATE_OUTPUT_LIMIT,
+            FlightConfig.RATE_OUTPUT_LIMIT
+        )
+        
+        # Override yaw output with direct RC command (for now)
+        yaw_out = rc_inputs['yaw']
+        
+        # Mix outputs for hexacopter motor layout
+        self._mix_motors(rc_inputs['throttle'], roll_out, pitch_out, yaw_out)
+    
+    def _disarmed_mode(self, yaw, throttle):
+        """Execute disarmed mode - motors at low throttle"""
+        self.set_all_motors(throttle)
+        self.yaw_target = yaw
+        self.reset_integrators()
+    
+    def _mix_motors(self, throttle, roll, pitch, yaw):
+        """
+        Mix throttle and control outputs for hexacopter motor layout
+        
+        Hexacopter motor layout (view from top, front is up):
+                0
+            5       1
+            
+            4       2
+                3
+        """
+        # Motor mixing for hexacopter configuration
+        self.motors[0].move(throttle - (0.866 * pitch) + (0.5 * roll) - yaw)
+        self.motors[1].move(throttle - (0.866 * pitch) - (0.5 * roll) + yaw)
+        self.motors[2].move(throttle - roll - yaw)
+        self.motors[3].move(throttle + (0.866 * pitch) - (0.5 * roll) + yaw)
+        self.motors[4].move(throttle + (0.866 * pitch) + (0.5 * roll) - yaw)
+        self.motors[5].move(throttle + roll + yaw)
+    
+    @staticmethod
+    def _clamp(value, min_val, max_val):
+        """Clamp value between min and max"""
+        return max(min(value, max_val), min_val)
+
+
+# ============================================================================
+# MAIN ENTRY POINT
+# ============================================================================
+
+def main():
+    """Main entry point for flight controller"""
+    controller = FlightController()
+    controller.run()
+
+
+if __name__ == '__main__':
+    main()
+

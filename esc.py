@@ -1,21 +1,112 @@
+"""
+ESC (Electronic Speed Controller) Module
+
+Controls brushless motor ESCs using PWM signals on PyBoard timers.
+Standard ESC PWM range: 950-1950 microseconds
+
+Motor Configuration:
+- 6 motors (hexacopter configuration)
+- Individual trim values for motor balancing
+"""
+
 from pyb import Pin, Timer
 
-esc_pins = ['X1', 'X2', 'X3', 'X6', 'Y9', 'Y10']
-esc_pins_timers = [5, 5, 5, 2, 2, 2]
-esc_pins_channels = [1, 2, 3, 1, 3, 4]
-esc_trim = [0, 0, 0, 0, 0, 0]
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# ESC pin assignments (PyBoard-specific)
+ESC_PINS = ['X1', 'X2', 'X3', 'X6', 'Y9', 'Y10']
+
+# Timer assignments for each pin
+ESC_TIMERS = [5, 5, 5, 2, 2, 2]
+
+# Timer channel assignments
+ESC_CHANNELS = [1, 2, 3, 1, 3, 4]
+
+# Individual motor trim values (microseconds offset)
+# Adjust these to balance motor thrust
+ESC_TRIM = [0, 0, 0, 0, 0, 0]
+
+
+# ============================================================================
+# ESC CONTROLLER CLASS
+# ============================================================================
 
 class ESC:
-  freq_min = 950
-  freq_max = 1950
-  def __init__(self, index):
-    self.timer = Timer(esc_pins_timers[index], prescaler=83, period=19999)
-    self.channel = self.timer.channel(esc_pins_channels[index],
-                                      Timer.PWM,
-                                      pin=Pin(esc_pins[index]))
-    self.trim = esc_trim[index]
-  def move(self, freq):
-    freq = min(self.freq_max, max(self.freq_min, freq + self.trim))
-    self.channel.pulse_width(int(freq))
-  def __del__(self):
-    self.timer.deinit()
+    """
+    ESC controller using PWM signals.
+    
+    PWM Configuration:
+    - Frequency: 50 Hz (standard servo/ESC frequency)
+    - Pulse width: 950-1950 microseconds
+    - Timer prescaler: 83 (for 1MHz timer clock)
+    - Timer period: 19999 (20ms period)
+    """
+    
+    # PWM pulse width limits (microseconds)
+    FREQ_MIN = 950
+    FREQ_MAX = 1950
+    
+    # Timer configuration (PyBoard @ 84 MHz)
+    TIMER_PRESCALER = 83  # 84 MHz / (83 + 1) = 1 MHz
+    TIMER_PERIOD = 19999  # 1 MHz / 20000 = 50 Hz
+    
+    def __init__(self, index):
+        """
+        Initialize ESC controller.
+        
+        Args:
+            index: Motor index (0-5 for hexacopter)
+        """
+        if not 0 <= index < len(ESC_PINS):
+            raise ValueError(f"Invalid motor index: {index}. Must be 0-{len(ESC_PINS)-1}")
+        
+        self.index = index
+        self.trim = ESC_TRIM[index]
+        
+        # Initialize timer and PWM channel
+        self.timer = Timer(
+            ESC_TIMERS[index],
+            prescaler=self.TIMER_PRESCALER,
+            period=self.TIMER_PERIOD
+        )
+        
+        self.channel = self.timer.channel(
+            ESC_CHANNELS[index],
+            Timer.PWM,
+            pin=Pin(ESC_PINS[index])
+        )
+        
+        # Start with minimum throttle
+        self.move(self.FREQ_MIN)
+    
+    def move(self, freq):
+        """
+        Set motor speed.
+        
+        Args:
+            freq: Throttle value in microseconds (will be clamped to valid range)
+        """
+        # Apply trim and clamp to valid range
+        freq = freq + self.trim
+        freq = max(self.FREQ_MIN, min(self.FREQ_MAX, freq))
+        
+        # Set PWM pulse width
+        self.channel.pulse_width(int(freq))
+    
+    def stop(self):
+        """Stop the motor (minimum throttle)."""
+        self.move(self.FREQ_MIN)
+    
+    def __del__(self):
+        """Cleanup timer resources."""
+        try:
+            self.timer.deinit()
+        except:
+            pass
+    
+    def __repr__(self):
+        """String representation."""
+        return f"ESC(motor={self.index}, pin={ESC_PINS[self.index]}, trim={self.trim})"

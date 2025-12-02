@@ -1,89 +1,142 @@
-#from struct import unpack as unp
+"""
+MPU6050 IMU Driver Module
+
+Driver for MPU6050 6-axis IMU (Inertial Measurement Unit) with:
+- Digital Motion Processor (DMP) support
+- Quaternion and Euler angle calculation
+- FIFO buffer management
+- I2C communication
+
+Based on Jeff Rowberg's MPU6050 library and adapted for MicroPython.
+"""
+
 from pyb import I2C, delay
 from math import isnan, pi, asin, atan, atan2
 
 
 def bytes_to_int(msb, lsb):
-  if not msb & 0x80:
-    return msb << 8 | lsb
-  return - (((msb ^ 255) << 8) | (lsb ^ 255) + 1)
-
-
-class PyComms:
-  def __init__(self, address=0x68, side=1):
-    self.address = address
-    self.bus = I2C(side, I2C.MASTER)
+    """
+    Convert two bytes to signed integer.
     
-  def readBit(self, reg, bitNum):
-    b = self.readU8(reg)
-    return b & (1 << bitNum)
-    
-  def writeBit(self, reg, bitNum, data):
-    b = self.readU8(reg)
-    b = (b | (1 << bitNum)) if data != 0 else (b & ~(1 << bitNum))
-    return self.write8(reg, b)
-    
-  def readBits(self, reg, bitStart, length):
-    b = self.readU8(reg)
-    mask = ((1 << length) - 1) << (bitStart - length + 1)
-    b &= mask
-    b >>= (bitStart - length + 1)
-    return b
+    Args:
+        msb: Most significant byte
+        lsb: Least significant byte
         
-  def writeBits(self, reg, bitStart, length, data):
-    b = self.readU8(reg)
-    mask = ((1 << length) - 1) << (bitStart - length + 1)
-    data <<= (bitStart - length + 1)
-    data &= mask
-    b &= ~(mask)
-    b |= data
-    return self.write8(reg, b)
-
-  def readBytes(self, reg, length):
-    output = []
-    i = 0
-    while i < length:
-      output.append(self.readU8(reg))
-      i += 1
-    return output        
-    
-  def write8(self, reg, value):
-    try:
-      self.bus.mem_write(value, self.address, reg)
-    except Exception as e:
-      print ("Error accessing address 0x%02X -> %s" % (self.address, str(e)))
-    return -1
-
-  def readU8(self, reg):
-    try:
-      #return unp('<I', self.bus.mem_read(1, self.address, reg))[0]
-      buf = bytearray([0]*1)
-      self.bus.mem_read(buf, self.address, reg)
-      return buf[0]
-    except Exception as e:
-      print ("Error accessing address 0x%02X -> %s" % (self.address, str(e)))
-      return -1
-
-  def readU16(self, reg):
-    try:
-      #hibyte = unp('<I', self.bus.mem_read(1, self.address, reg))[0]
-      #return (hibyte << 8) + unp('<I', self.bus.mem_read(1, self.address, reg + 1))[0]
-      buf = bytearray([0]*2)
-      self.bus.mem_read(buf, self.address, reg)
-      return bytes_to_int(buf[0], buf[1])
-    except Exception as e:
-      print ("Error accessing address 0x%02X -> %s" % (self.address, str(e)))
-      return -1
+    Returns:
+        Signed 16-bit integer value
+    """
+    if not msb & 0x80:
+        return msb << 8 | lsb
+    return -(((msb ^ 255) << 8) | (lsb ^ 255) + 1)
 
 
 def safe_asin(v):
-  if isnan(v): return 0
-  if v >= 1: return pi/2
-  if v <= -1: return -pi/2
-  return asin(v)
+    """
+    Safe arcsine with clamping to prevent math domain errors.
+    
+    Args:
+        v: Input value
+        
+    Returns:
+        Arcsine of clamped value
+    """
+    if isnan(v):
+        return 0
+    if v >= 1:
+        return pi / 2
+    if v <= -1:
+        return -pi / 2
+    return asin(v)
 
 
-class MPU6050:    
+class PyComms:
+    """Low-level I2C communication handler for MPU6050."""
+    
+    def __init__(self, address=0x68, side=1):
+        """
+        Initialize I2C communication.
+        
+        Args:
+            address: I2C device address
+            side: I2C bus number (1 or 2)
+        """
+        self.address = address
+        self.bus = I2C(side, I2C.MASTER)
+    
+    def readBit(self, reg, bit_num):
+        """Read a single bit from a register."""
+        b = self.readU8(reg)
+        return b & (1 << bit_num)
+    
+    def writeBit(self, reg, bit_num, data):
+        """Write a single bit to a register."""
+        b = self.readU8(reg)
+        b = (b | (1 << bit_num)) if data != 0 else (b & ~(1 << bit_num))
+        return self.write8(reg, b)
+    
+    def readBits(self, reg, bit_start, length):
+        """Read multiple bits from a register."""
+        b = self.readU8(reg)
+        mask = ((1 << length) - 1) << (bit_start - length + 1)
+        b &= mask
+        b >>= (bit_start - length + 1)
+        return b
+    
+    def writeBits(self, reg, bit_start, length, data):
+        """Write multiple bits to a register."""
+        b = self.readU8(reg)
+        mask = ((1 << length) - 1) << (bit_start - length + 1)
+        data <<= (bit_start - length + 1)
+        data &= mask
+        b &= ~mask
+        b |= data
+        return self.write8(reg, b)
+    
+    def readBytes(self, reg, length):
+        """Read multiple bytes from a register."""
+        return [self.readU8(reg) for _ in range(length)]
+    
+    def write8(self, reg, value):
+        """Write a byte to a register."""
+        try:
+            self.bus.mem_write(value, self.address, reg)
+        except Exception as e:
+            print(f"Error writing to 0x{self.address:02X}: {e}")
+            return -1
+    
+    def readU8(self, reg):
+        """Read an unsigned byte from a register."""
+        try:
+            buf = bytearray(1)
+            self.bus.mem_read(buf, self.address, reg)
+            return buf[0]
+        except Exception as e:
+            print(f"Error reading from 0x{self.address:02X}: {e}")
+            return -1
+    
+    def readU16(self, reg):
+        """Read a signed 16-bit value from a register."""
+        try:
+            buf = bytearray(2)
+            self.bus.mem_read(buf, self.address, reg)
+            return bytes_to_int(buf[0], buf[1])
+        except Exception as e:
+            print(f"Error reading from 0x{self.address:02X}: {e}")
+            return -1
+
+
+class MPU6050:
+    """
+    MPU6050 6-axis IMU driver with DMP (Digital Motion Processor) support.
+    
+    Features:
+    - 3-axis gyroscope
+    - 3-axis accelerometer
+    - Digital Motion Processor for quaternion calculation
+    - FIFO buffer for data streaming
+    """
+    
+    # I2C Addresses    
     MPU6050_ADDRESS_AD0_LOW       = 0x68 # address pin low (GND), default for InvenSense evaluation board
     MPU6050_ADDRESS_AD0_HIGH      = 0x69 # address pin high (VCC)
     MPU6050_DEFAULT_ADDRESS       = MPU6050_ADDRESS_AD0_LOW

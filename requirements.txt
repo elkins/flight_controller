@@ -1,0 +1,10 @@
+# Flight Controller - Requirements
+# 
+# This project is designed for MicroPython on PyBoard
+# No external Python packages required for flight controller operation
+#
+# For testing and simulation on desktop Python:
+# (These are NOT needed on the PyBoard itself)
+
+# Testing requirements (optional, for development/testing only)
+# None - uses only Python standard library for testing
