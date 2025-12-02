@@ -194,6 +194,47 @@ class HexacopterPhysics:
             'orientation_euler': np.array(euler),  # [roll, pitch, yaw]
             'angular_velocity': np.array(ang_vel),
         }
+    
+    def apply_external_force(self, force: List[float], position: List[float] = None):
+        """Apply external force (e.g., wind gust)"""
+        if self.drone_id is None:
+            return
+        
+        if position is None:
+            # Apply at center of mass
+            pos, _ = p.getBasePositionAndOrientation(self.drone_id, physicsClientId=self.client)
+            position = pos
+        
+        p.applyExternalForce(
+            self.drone_id, -1,
+            force,
+            position,
+            p.WORLD_FRAME,
+            physicsClientId=self.client
+        )
+    
+    def reset_position(self, position: List[float], orientation_euler: List[float]):
+        """Reset drone position and orientation"""
+        if self.drone_id is None:
+            return
+        
+        # Convert euler angles to quaternion
+        orn_quat = p.getQuaternionFromEuler(orientation_euler)
+        
+        p.resetBasePositionAndOrientation(
+            self.drone_id,
+            position,
+            orn_quat,
+            physicsClientId=self.client
+        )
+        
+        # Reset velocities
+        p.resetBaseVelocity(
+            self.drone_id,
+            [0, 0, 0],
+            [0, 0, 0],
+            physicsClientId=self.client
+        )
 
 
 class PyBulletPWMChannel(HALPWMChannel):
@@ -379,12 +420,13 @@ class PyBulletTimer(HALTimer):
 class PyBulletPlatform(HALPlatform):
     """PyBullet simulator platform"""
     
-    def __init__(self, gui: bool = True, start_position: List[float] = None):
+    def __init__(self, gui: bool = True, start_position: List[float] = None, start_orientation: List[float] = None):
         """Initialize PyBullet simulation
         
         Args:
             gui: Show GUI window (True) or run headless (False)
             start_position: Starting [x, y, z] position in meters
+            start_orientation: Starting [roll, pitch, yaw] orientation in radians
         """
         if not PYBULLET_AVAILABLE:
             raise RuntimeError(
@@ -408,6 +450,10 @@ class PyBulletPlatform(HALPlatform):
         self.physics = HexacopterPhysics(self.client)
         start_pos = start_position or [0, 0, 1.0]
         self.physics.create_hexacopter(start_pos)
+        
+        # Apply initial orientation if specified
+        if start_orientation is not None:
+            self.physics.reset_position(start_pos, start_orientation)
         
         # Camera setup (if GUI)
         if gui:
