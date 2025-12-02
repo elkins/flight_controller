@@ -277,6 +277,15 @@ class EnhancedPyBulletPWMChannel(HALPWMChannel):
             self._pulse_width = np.clip(width_us, 1000, 2000)
             logger.debug(f"Motor {self.motor_index} set to {self._pulse_width}μs")
         return self._pulse_width
+    
+    def set_pulse_width(self, width_us: int):
+        """Set PWM pulse width in microseconds"""
+        self._pulse_width = np.clip(width_us, 1000, 2000)
+        logger.debug(f"Motor {self.motor_index} set to {self._pulse_width}μs")
+    
+    def get_pulse_width(self) -> int:
+        """Get current PWM pulse width in microseconds"""
+        return self._pulse_width
 
 
 class EnhancedPyBulletPlatform(HALPlatform):
@@ -387,6 +396,18 @@ class EnhancedPyBulletPlatform(HALPlatform):
     def name(self) -> str:
         return "PyBullet-Enhanced"
     
+    @property
+    def platform_name(self) -> str:
+        return "PyBullet-Enhanced"
+    
+    def get_timer(self, timer_id: int) -> HALTimer:
+        """Get timer (not used in simulation)"""
+        raise NotImplementedError("Timers not implemented in simulation")
+    
+    def get_i2c(self, bus_id: int) -> HALI2C:
+        """Get I2C bus (simulated IMU)"""
+        raise NotImplementedError("I2C not yet implemented in enhanced simulation")
+    
     def create_timer(self, timer_id: int, frequency: int) -> HALTimer:
         # Not needed for simulation
         pass
@@ -418,6 +439,10 @@ class EnhancedPyBulletPlatform(HALPlatform):
         
         if self.gui:
             time.sleep(1/240.0)  # Real-time visualization
+    
+    def delay_us(self, us: int):
+        """Delay microseconds (simulation uses milliseconds)"""
+        self.delay_ms(us / 1000.0)
     
     def disconnect(self):
         """Clean up simulation"""

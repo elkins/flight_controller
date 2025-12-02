@@ -269,7 +269,7 @@ class MAVLinkTelemetry:
         Args:
             airspeed: Current airspeed in m/s
             groundspeed: Current ground speed in m/s
-            heading: Current heading in degrees (0-360)
+            heading: Current heading in degrees (0-359, wraps at 360)
             throttle: Current throttle % (0-100)
             alt: Current altitude in meters (MSL)
             climb: Current climb rate in m/s
@@ -278,17 +278,21 @@ class MAVLinkTelemetry:
             return
         
         try:
+            # Ensure heading is in valid range [0, 359]
+            heading_int = int(heading) % 360
+            throttle_int = max(0, min(100, int(throttle)))  # Clamp to 0-100
+            
             self.connection.mav.vfr_hud_send(
                 airspeed=airspeed,
                 groundspeed=groundspeed,
-                heading=int(heading),
-                throttle=int(throttle),
+                heading=heading_int,
+                throttle=throttle_int,
                 alt=alt,
                 climb=climb
             )
             self.packets_sent += 1
         except Exception as e:
-            print(f"✗ Failed to send VFR HUD: {e}")
+            print(f"✗ Failed to send VFR HUD: {e} (hdg={heading_int}, thr={throttle_int}, alt={alt})")
     
     def send_sys_status(self, voltage_battery=0, current_battery=0, battery_remaining=-1,
                        cpu_load=0, sensors_health=0xFFFFFFFF):
