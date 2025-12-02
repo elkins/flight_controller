@@ -19,7 +19,7 @@ except ImportError:
     print("Install with: pip install pymavlink")
 
 if MAVLINK_AVAILABLE:
-    from mavlink_telemetry import MAVLinkTelemetry
+    from telemetry.mavlink_telemetry import MAVLinkTelemetry
 
 
 @pytest.mark.skipif(not MAVLINK_AVAILABLE, reason="pymavlink not installed")

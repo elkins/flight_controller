@@ -16,12 +16,12 @@ logging.basicConfig(
 )
 
 # Import HAL
-from hal import set_platform
+from src.hal.hal import set_platform
 
 # Check if PyBullet is available
 try:
-    import hal_pybullet
-    from hal_pybullet import PyBulletPlatform
+    from src.hal import hal_pybullet
+    from src.hal.hal_pybullet import PyBulletPlatform
     PYBULLET_AVAILABLE = True
 except ImportError as e:
     print(f"PyBullet not available: {e}")
@@ -835,7 +835,7 @@ def test_pybullet_mavlink_integration():
     
     # Check if pymavlink is available
     try:
-        from mavlink_telemetry import MAVLinkTelemetry
+        from telemetry.mavlink_telemetry import MAVLinkTelemetry
         mavlink_available = True
     except ImportError:
         print("⚠ pymavlink not installed - skipping MAVLink test")

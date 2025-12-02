@@ -155,21 +155,21 @@ sys.modules['pyb'] = mock_pyb  # type: ignore
 
 print("Loading flight controller modules...")
 try:
-    from pid import PID
+    from src.pid import PID
     print("✓ PID module loaded")
 except Exception as e:
     print(f"✗ Error loading PID: {e}")
     sys.exit(1)
 
 try:
-    from esc import ESC
+    from src.esc import ESC
     print("✓ ESC module loaded")
 except Exception as e:
     print(f"✗ Error loading ESC: {e}")
     sys.exit(1)
 
 try:
-    from rc import RC, map_range, wrap_180
+    from src.rc import RC, map_range, wrap_180
     print("✓ RC module loaded")
 except Exception as e:
     print(f"✗ Error loading RC: {e}")

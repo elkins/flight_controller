@@ -9,7 +9,7 @@ import logging
 import time
 import numpy as np
 from typing import Callable, Dict, List, Tuple
-from hal import (
+from src.hal.hal import (
     HALPlatform, HALTimer, HALPWMChannel, HALInputCapture, HALI2C
 )
 

@@ -74,7 +74,7 @@ sys.modules['pyb'] = MockPyb()
 
 # Now import HAL modules
 try:
-    from hal import (
+    from src.hal.hal import (
         HALPlatform, HALTimer, HALPWMChannel, HALInputCapture, HALI2C,
         get_platform, set_platform
     )
@@ -86,7 +86,7 @@ except Exception as e:
     sys.exit(1)
 
 try:
-    from hal_pyboard import (
+    from src.hal.hal_pyboard import (
         PyBoardPlatform, PyBoardTimer, PyBoardPWMChannel,
         PyBoardInputCapture, PyBoardI2C
     )
@@ -98,7 +98,7 @@ except Exception as e:
     sys.exit(1)
 
 try:
-    from platform_config import (
+    from src.platform_config import (
         get_config, get_esc_pin, get_rc_pin, get_i2c_config,
         PYBOARD_CONFIG, ARDUINO_CONFIG, RASPBERRY_PI_CONFIG, ESP32_CONFIG
     )

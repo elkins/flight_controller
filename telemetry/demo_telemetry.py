@@ -13,7 +13,7 @@ import math
 import sys
 
 try:
-    from mavlink_telemetry import MAVLinkTelemetry
+    from telemetry.mavlink_telemetry import MAVLinkTelemetry
     MAVLINK_AVAILABLE = True
 except ImportError:
     print("✗ pymavlink not installed")

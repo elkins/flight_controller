@@ -10,10 +10,10 @@ Architecture:
 - 4-channel RC input (throttle, roll, pitch, yaw)
 """
 
-from mpu6050 import MPU6050
-from pid import PID
-from rc import RC, map_range, wrap_180
-from esc import ESC
+from src.mpu6050 import MPU6050
+from src.pid import PID
+from src.rc import RC, map_range, wrap_180
+from src.esc import ESC
 
 
 # ============================================================================

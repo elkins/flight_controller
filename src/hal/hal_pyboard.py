@@ -5,7 +5,7 @@ Implements HAL interfaces for PyBoard/STM32 platform.
 """
 
 import logging
-from hal import (
+from src.hal.hal import (
     HALPlatform, HALTimer, HALPWMChannel, HALInputCapture, HALI2C
 )
 from pyb import Timer, Pin, I2C, millis, delay

@@ -16,7 +16,7 @@ import time
 import random
 
 # Import the simulator setup
-from test_simulator import mock_pyb, MockMPU6050
+from tests.test_simulator import mock_pyb, MockMPU6050
 
 # Mock mpu6050 module before importing main
 class MockMPU6050Module:
@@ -24,7 +24,7 @@ class MockMPU6050Module:
 
 sys.modules['mpu6050'] = MockMPU6050Module()  # type: ignore
 
-import main as flight_main
+import src.main as flight_main
 
 
 class FlightSimulator:

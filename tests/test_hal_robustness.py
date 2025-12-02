@@ -79,9 +79,9 @@ class MockTimerChannel:
 
 sys.modules['pyb'] = MockPyb()
 
-from hal import get_platform, set_platform, HALPlatform
-from hal_pyboard import PyBoardPlatform
-from platform_config import get_config
+from src.hal.hal import get_platform, set_platform, HALPlatform
+from src.hal.hal_pyboard import PyBoardPlatform
+from src.platform_config import get_config
 
 
 def test_pwm_validation():

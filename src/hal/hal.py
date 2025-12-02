@@ -178,14 +178,14 @@ def get_platform() -> HALPlatform:
         # Auto-detect platform
         try:
             import pyb
-            from hal_pyboard import PyBoardPlatform
+            from src.hal.hal_pyboard import PyBoardPlatform
             platform = PyBoardPlatform()
             set_platform(platform)
             logger.info("Detected: PyBoard")
         except ImportError:
             try:
                 import RPi.GPIO
-                from hal_raspberrypi import RaspberryPiPlatform
+                from src.hal.hal_raspberrypi import RaspberryPiPlatform
                 platform = RaspberryPiPlatform()
                 set_platform(platform)
                 logger.info("Detected: Raspberry Pi")
