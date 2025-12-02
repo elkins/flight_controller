@@ -54,14 +54,24 @@ except ImportError:
 from src.hal.hal_pybullet_enhanced import EnhancedPyBulletPlatform
 
 
+def normalize_angle(angle_deg):
+    """Normalize angle to [-180, 180] range"""
+    while angle_deg > 180:
+        angle_deg -= 360
+    while angle_deg < -180:
+        angle_deg += 360
+    return angle_deg
+
+
 class SimplePID:
     """Simple PID controller for stabilization"""
-    def __init__(self, kp, ki, kd, output_min=-500, output_max=500):
+    def __init__(self, kp, ki, kd, output_min=-500, output_max=500, angle_wrap=False):
         self.kp = kp
         self.ki = ki
         self.kd = kd
         self.output_min = output_min
         self.output_max = output_max
+        self.angle_wrap = angle_wrap  # Set True for yaw control
         self.integral = 0
         self.last_error = 0
         self.last_time = time.time()
@@ -74,7 +84,14 @@ class SimplePID:
             dt = 0.001
         
         error = setpoint - measured
+        
+        # Wrap angle error to [-180, 180] for yaw control
+        if self.angle_wrap:
+            error = normalize_angle(error)
+        
+        # Update integral with anti-windup (clamp to ±50)
         self.integral += error * dt
+        self.integral = np.clip(self.integral, -50, 50)
         derivative = (error - self.last_error) / dt
         
         output = (self.kp * error) + (self.ki * self.integral) + (self.kd * derivative)
@@ -121,10 +138,10 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
     print(f"  Flight pattern: {flight_mode}\n")
     
     # Initialize PID controllers (tuned for simulation)
-    roll_pid = SimplePID(kp=2.0, ki=0.2, kd=1.0, output_min=-400, output_max=400)
-    pitch_pid = SimplePID(kp=2.0, ki=0.2, kd=1.0, output_min=-400, output_max=400)
-    yaw_pid = SimplePID(kp=3.0, ki=0.1, kd=1.5, output_min=-300, output_max=300)
-    alt_pid = SimplePID(kp=200, ki=10, kd=100, output_min=-300, output_max=300)
+    roll_pid = SimplePID(kp=4.0, ki=0.1, kd=2.0, output_min=-300, output_max=300)
+    pitch_pid = SimplePID(kp=4.0, ki=0.1, kd=2.0, output_min=-300, output_max=300)
+    yaw_pid = SimplePID(kp=1.0, ki=0.05, kd=0.5, output_min=-200, output_max=200, angle_wrap=True)
+    alt_pid = SimplePID(kp=100, ki=2, kd=80, output_min=-250, output_max=250)
     
     # GPS home position (San Francisco)
     HOME_LAT = 37.7749 * 1e7  # degrees * 1e7
@@ -167,13 +184,13 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
             elif elapsed < 8:
                 # Takeoff
                 armed = True
-                target_altitude = 2.0
-                throttle_base = 1200
+                target_altitude = 1.5
+                throttle_base = 1500  # Increased base throttle for takeoff
             elif elapsed < duration - 5:
                 # Flight pattern
                 armed = True
-                target_altitude = 2.0
-                throttle_base = 1200
+                target_altitude = 1.5
+                throttle_base = 1500  # Keep higher throttle during flight
             else:
                 # Landing
                 armed = True
@@ -182,20 +199,10 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
             
             # Calculate flight pattern setpoints
             if flight_mode == 'circle' and elapsed >= 8 and elapsed < duration - 5:
-                # Circular flight pattern
-                pattern_time = elapsed - 8
-                radius = 3.0  # meters
-                angular_speed = 0.3  # rad/s
-                angle = pattern_time * angular_speed
-                
-                # Position targets (not used for direct control, but for telemetry)
-                target_x = radius * math.cos(angle)
-                target_y = radius * math.sin(angle)
-                
-                # Attitude targets for circular motion
-                roll_setpoint = -10 * math.sin(angle)  # Bank into turn
-                pitch_setpoint = 10 * math.cos(angle)
-                yaw_setpoint = math.degrees(angle)
+                # Simple stable hover - no movement
+                roll_setpoint = 0
+                pitch_setpoint = 0
+                yaw_setpoint = 0  # Hold heading at 0°
                 
             elif flight_mode == 'figure8' and elapsed >= 8 and elapsed < duration - 5:
                 # Figure-8 pattern
@@ -243,10 +250,14 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
                 pitch_setpoint = 0
                 yaw_setpoint = math.degrees(euler[2])  # Hold current heading
             
-            # Altitude control
+            # Altitude control with velocity damping
             altitude_error = target_altitude - position[2]
             altitude_correction = alt_pid.update(target_altitude, position[2])
-            throttle = throttle_base + int(altitude_correction)
+            
+            # Add strong damping based on vertical velocity to prevent overshoot
+            velocity_damping = -velocity[2] * 150  # Negative because velocity[2] is positive when climbing
+            
+            throttle = throttle_base + int(altitude_correction + velocity_damping)
             
             # Attitude stabilization
             roll_correction = roll_pid.update(roll_setpoint, math.degrees(euler[0]))
@@ -271,7 +282,12 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
                 platform.motors[i].pulse_width_us(motor_pwm)
             
             # Step physics simulation
-            platform.delay_ms(4)  # ~240Hz control loop
+            try:
+                platform.delay_ms(4)  # ~240Hz control loop
+            except Exception as e:
+                print(f"\n✗ Simulation error: {e}")
+                print("  (PyBullet window may have been closed)")
+                break
             
             # === Send MAVLink Telemetry ===
             
