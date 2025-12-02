@@ -98,12 +98,13 @@ mavlink.send_position(x, y, z, vx, vy, vz)
 4. [Data Logging & Analysis](#data-logging--analysis)
 5. [QGroundControl Integration](#qgroundcontrol-integration)
 6. [Telemetry & Ground Control](#telemetry--ground-control)
-7. [Architecture](#architecture)
-8. [PID Tuning](#pid-tuning)
-9. [Testing](#testing)
-10. [API Reference](#api-reference)
-11. [Troubleshooting](#troubleshooting)
-12. [Credits](#credits)
+7. [Safety Features](#safety-features)
+8. [Architecture](#architecture)
+9. [PID Tuning](#pid-tuning)
+10. [Testing](#testing)
+11. [API Reference](#api-reference)
+12. [Troubleshooting](#troubleshooting)
+13. [Credits](#credits)
 
 ---
 
@@ -501,6 +502,118 @@ mavproxy.py --master=/dev/ttyUSB0 --console --map
 | STATUSTEXT | As needed | Debug messages |
 
 **Bandwidth**: ~3.5 KB/s at 50Hz (fits 57600 baud)
+
+---
+
+## Safety Features
+
+Comprehensive safety system with multiple failsafe mechanisms to protect the aircraft and surroundings.
+
+### Battery Monitoring
+
+**Automatic voltage monitoring** with configurable thresholds:
+
+```python
+from src.safety import FlightSafety
+
+safety = FlightSafety()
+safety.battery_cells = 3  # 3S LiPo
+
+# In your main loop
+status, action = safety.check_battery(battery_voltage)
+
+if action == FailsafeAction.LAND:
+    # Battery critical - land immediately
+    initiate_landing()
+```
+
+**Thresholds:**
+- **Critical** (≤3.3V/cell): Immediate landing
+- **Warning** (≤3.5V/cell): Prepare to land
+- **Normal** (>3.5V/cell): Continue flight
+
+### RC Signal Loss Detection
+
+**Automatic detection** of RC signal loss with configurable timeout:
+
+```python
+# Check RC signal validity
+status, action = safety.check_rc_signal(rc_values)
+
+if action == FailsafeAction.HOVER:
+    # RC lost - hover in place
+    maintain_hover()
+```
+
+**Default**: 1000ms timeout (configurable)
+**Action**: Hover and wait for signal recovery
+
+### Geofencing
+
+**Altitude and distance limits** to prevent flyaways:
+
+```python
+# Set home position
+safety.set_home_position(x=0, y=0, z=0)
+
+# Set limits
+safety.max_altitude = 100.0  # meters
+safety.max_distance = 200.0  # meters
+
+# Check boundaries
+status, action = safety.check_geofence(current_position)
+```
+
+**Violations:**
+- **Altitude exceeded**: Immediate landing
+- **Distance exceeded**: Return-to-home (future: currently lands)
+
+### Motor Failure Detection
+
+**Monitors motor health** and triggers landing if failure detected:
+
+```python
+status, action = safety.check_motor_failure(motor_commands, throttle)
+```
+
+### Failsafe Priority
+
+Multiple simultaneous failsafes are handled by priority:
+
+1. **DISARM** - Cut all motors (emergency only)
+2. **LAND** - Gradual descent
+3. **RETURN_TO_HOME** - Navigate home (future)
+4. **HOVER** - Maintain position
+5. **NONE** - Continue normal flight
+
+### Using Safety System
+
+```python
+from src.safety import FlightSafety, apply_failsafe_action
+
+# Initialize
+safety = FlightSafety()
+safety.set_home_position(0, 0, 0)
+
+# In main flight loop (240 Hz)
+while True:
+    # Run all safety checks
+    battery_status, _ = safety.check_battery(battery_voltage)
+    rc_status, _ = safety.check_rc_signal(rc_channels)
+    geo_status, _ = safety.check_geofence(position)
+    
+    # Get primary failsafe action
+    action = safety.get_primary_failsafe_action()
+    
+    # Apply failsafe if needed
+    if action != FailsafeAction.NONE:
+        throttle, motors = apply_failsafe_action(action, throttle, motors)
+    
+    # Send motor commands
+    set_motors(motors)
+```
+
+**Tests**: 21 comprehensive safety tests covering all failure scenarios
 
 ---
 
