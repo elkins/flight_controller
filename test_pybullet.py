@@ -829,6 +829,126 @@ def test_motor_failure():
     return True
 
 
+def test_pybullet_mavlink_integration():
+    """Test PyBullet simulator with MAVLink telemetry"""
+    print("\n=== Testing PyBullet + MAVLink Integration ===")
+    
+    # Check if pymavlink is available
+    try:
+        from mavlink_telemetry import MAVLinkTelemetry
+        mavlink_available = True
+    except ImportError:
+        print("⚠ pymavlink not installed - skipping MAVLink test")
+        print("  Install with: pip install pymavlink")
+        return True  # Pass test but skip
+    
+    # Create simulator
+    platform = PyBulletPlatform(gui=False, start_position=[0, 0, 2.0])
+    set_platform(platform)
+    
+    # Create MAVLink telemetry
+    print("Initializing MAVLink telemetry...")
+    mavlink = MAVLinkTelemetry(port='udp:localhost:14562', system_id=1)
+    assert mavlink.connected
+    print(f"✓ MAVLink connected: {mavlink.port}")
+    
+    # Create motor controls
+    timer = platform.get_timer(5)
+    motors = [timer.create_pwm_channel(f'X{i+1}', 50) for i in range(6)]
+    
+    # Get I2C for IMU
+    i2c = platform.get_i2c(1)
+    i2c.write_byte(0x68, 0x6B, 0x00)
+    
+    print("Running simulation with telemetry stream...")
+    base_throttle = 1550
+    armed = True
+    
+    # Simulate for 1 second (240 steps at 240Hz)
+    for step in range(240):
+        # Get IMU data
+        gyro_data = i2c.read_bytes(0x68, 0x43, 6)
+        gyro_x = int.from_bytes(gyro_data[0:2], 'big', signed=True) / 131.0
+        gyro_y = int.from_bytes(gyro_data[2:4], 'big', signed=True) / 131.0
+        gyro_z = int.from_bytes(gyro_data[4:6], 'big', signed=True) / 131.0
+        
+        accel_data = i2c.read_bytes(0x68, 0x3B, 6)
+        accel_x = int.from_bytes(accel_data[0:2], 'big', signed=True) / 2048.0
+        accel_y = int.from_bytes(accel_data[2:4], 'big', signed=True) / 2048.0
+        accel_z = int.from_bytes(accel_data[4:6], 'big', signed=True) / 2048.0
+        
+        # Get simulator state
+        state = platform.get_simulation_state()
+        euler = state['orientation_euler']
+        pos = state['position']
+        vel = state['velocity']
+        
+        # Send telemetry messages
+        if step % 24 == 0:  # Heartbeat at 10Hz
+            mavlink.send_heartbeat(armed=armed)
+        
+        # Attitude at 50Hz
+        if step % 5 == 0:
+            mavlink.send_attitude(
+                euler[0], euler[1], euler[2],
+                gyro_x * np.pi / 180,  # Convert to rad/s
+                gyro_y * np.pi / 180,
+                gyro_z * np.pi / 180
+            )
+        
+        # Position at 50Hz
+        if step % 5 == 0:
+            mavlink.send_position(
+                pos[0], pos[1], -pos[2],  # NED frame (down is positive)
+                vel[0], vel[1], -vel[2]
+            )
+        
+        # System status at 1Hz
+        if step % 240 == 0:
+            mavlink.send_sys_status(
+                voltage_battery=12600,
+                current_battery=1500,
+                battery_remaining=90,
+                cpu_load=350
+            )
+        
+        # Motor outputs at 10Hz
+        if step % 24 == 0:
+            motor_pwm = [base_throttle] * 6
+            mavlink.send_servo_output(motor_pwm)
+        
+        # Run motors
+        for motor in motors:
+            motor.set_pulse_width(base_throttle)
+        
+        # Step simulation
+        platform.step_simulation()
+        
+        # Handle incoming commands
+        cmd = mavlink.handle_commands()
+        if cmd and cmd.get('command_name') == 'ARM_DISARM':
+            armed = (cmd['param1'] == 1.0)
+            mavlink.send_command_ack(cmd['command'], result=0)
+            print(f"  → {'ARMED' if armed else 'DISARMED'} (via MAVLink)")
+    
+    # Check telemetry statistics
+    stats = mavlink.get_statistics()
+    print(f"\n✓ Simulation complete")
+    print(f"  Telemetry packets sent: {stats['packets_sent']}")
+    print(f"  Packets received: {stats['packets_received']}")
+    print(f"  Average TX rate: {stats['packets_sent'] / stats['uptime']:.1f} Hz")
+    
+    # Verify telemetry was sent
+    assert stats['packets_sent'] > 50, "Should send many telemetry packets"
+    print("✓ MAVLink telemetry verified")
+    
+    # Cleanup
+    mavlink.close()
+    platform.cleanup()
+    
+    return True
+
+
 def main():
     """Run all PyBullet tests"""
     print("=" * 60)
@@ -850,6 +970,7 @@ def main():
         ("PID Step Response", test_step_response),
         ("Multi-Axis Control", test_multi_axis_control),
         ("Motor Failure Response", test_motor_failure),
+        ("PyBullet + MAVLink Integration", test_pybullet_mavlink_integration),
     ]
     
     passed = 0

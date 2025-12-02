@@ -279,16 +279,16 @@ class MAVLinkTelemetry:
         Send SERVO_OUTPUT_RAW message (motor PWM outputs)
         
         Args:
-            servo_values: List of up to 16 servo/motor PWM values (1000-2000 µs)
+            servo_values: List of up to 8 servo/motor PWM values (1000-2000 µs)
                          Use 0 for unused channels
             port: Servo port (0 = MAIN, 1 = AUX)
         """
         if not self.connected:
             return
         
-        # Ensure we have 16 values
-        servo_values = list(servo_values) + [0] * (16 - len(servo_values))
-        servo_values = servo_values[:16]
+        # Ensure we have 8 values (MAVLink 1.0 supports only 8 servos)
+        servo_values = list(servo_values) + [0] * (8 - len(servo_values))
+        servo_values = servo_values[:8]
         
         try:
             self.connection.mav.servo_output_raw_send(
@@ -301,15 +301,7 @@ class MAVLinkTelemetry:
                 servo5_raw=servo_values[4],
                 servo6_raw=servo_values[5],
                 servo7_raw=servo_values[6],
-                servo8_raw=servo_values[7],
-                servo9_raw=servo_values[8],
-                servo10_raw=servo_values[9],
-                servo11_raw=servo_values[10],
-                servo12_raw=servo_values[11],
-                servo13_raw=servo_values[12],
-                servo14_raw=servo_values[13],
-                servo15_raw=servo_values[14],
-                servo16_raw=servo_values[15]
+                servo8_raw=servo_values[7]
             )
             self.packets_sent += 1
         except Exception as e:
