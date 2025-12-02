@@ -95,13 +95,15 @@ mavlink.send_position(x, y, z, vx, vy, vz)
 1. [Installation](#installation)
 2. [Hardware Setup](#hardware-setup)
 3. [Simulation](#simulation)
-4. [Telemetry & Ground Control](#telemetry--ground-control)
-5. [Architecture](#architecture)
-6. [PID Tuning](#pid-tuning)
-7. [Testing](#testing)
-8. [API Reference](#api-reference)
-9. [Troubleshooting](#troubleshooting)
-10. [Credits](#credits)
+4. [Data Logging & Analysis](#data-logging--analysis)
+5. [QGroundControl Integration](#qgroundcontrol-integration)
+6. [Telemetry & Ground Control](#telemetry--ground-control)
+7. [Architecture](#architecture)
+8. [PID Tuning](#pid-tuning)
+9. [Testing](#testing)
+10. [API Reference](#api-reference)
+11. [Troubleshooting](#troubleshooting)
+12. [Credits](#credits)
 
 ---
 
@@ -304,6 +306,116 @@ while hal.step():
 | Validated coefficients | ❌ | ✅ (Crazyflie) |
 | Performance | Fast | 240Hz (real-time) |
 | Best for | Development | Research/Validation |
+
+---
+
+## Data Logging & Analysis
+
+### Flight Data Logger
+
+Record all sensor data, PID outputs, and motor commands to CSV files for post-flight analysis.
+
+**Quick Start:**
+```python
+from src.data_logger import FlightDataLogger
+
+# Initialize logger
+logger = FlightDataLogger()
+logger.start_logging("test_flight")
+
+# In your main loop
+logger.log_data({
+    'roll': attitude[0],
+    'pitch': attitude[1],
+    'yaw': attitude[2],
+    'gyro_x': gyro[0],
+    'gyro_y': gyro[1],
+    'gyro_z': gyro[2],
+    'motor_0': motor_commands[0],
+    # ... etc
+})
+
+# When done
+logger.stop_logging()
+```
+
+**Run Simulation with Logging:**
+```bash
+# Full flight simulation with 3D visualization + logging
+python examples/flight_with_logging.py
+
+# Custom duration
+python examples/flight_with_logging.py --duration 60
+
+# Logs saved to: flight_logs/pybullet_flight_YYYYMMDD_HHMMSS.csv
+```
+
+### Analysis Tools
+
+**PlotJuggler** (recommended for time-series visualization):
+```bash
+brew install plotjuggler  # macOS
+sudo apt install plotjuggler  # Linux
+
+plotjuggler flight_logs/pybullet_flight_*.csv
+```
+
+**Python/Pandas:**
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv('flight_logs/pybullet_flight_20231202.csv')
+
+# Plot attitude
+plt.plot(df['timestamp_ms'], df['roll'], label='Roll')
+plt.plot(df['timestamp_ms'], df['pitch'], label='Pitch')
+plt.legend()
+plt.show()
+```
+
+**Quick Statistics:**
+```python
+from src.data_logger import LoggerStats
+
+stats = LoggerStats.analyze_log('flight_logs/pybullet_flight_20231202.csv')
+print(f"Duration: {stats['duration_seconds']:.1f}s")
+print(f"Loop rate: {stats['avg_loop_rate']:.1f} Hz")
+```
+
+---
+
+## QGroundControl Integration
+
+### Setup
+
+1. **Install QGroundControl:** http://qgroundcontrol.com/
+2. **Configure UDP Link:**
+   - Application Settings → Comm Links → Add
+   - Type: UDP, Port: 14550
+3. **Test Connection:**
+   ```bash
+   python examples/test_qgroundcontrol.py
+   ```
+
+### Run with QGroundControl
+
+```bash
+# Start simulation with MAVLink telemetry
+python examples/flight_with_logging.py
+
+# Connect QGroundControl to UDP port 14550
+# You'll see real-time telemetry, attitude indicator, battery, etc.
+```
+
+**Features:**
+- Real-time attitude/position visualization
+- Battery monitoring
+- Parameter tuning
+- Mission planning (future)
+- Flight log download
+
+**Full Documentation:** [docs/QGROUNDCONTROL_SETUP.md](docs/QGROUNDCONTROL_SETUP.md)
 
 ---
 
