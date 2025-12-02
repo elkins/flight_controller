@@ -17,13 +17,14 @@ from pyb import Pin, Timer
 # ============================================================================
 
 # ESC pin assignments (PyBoard-specific)
-ESC_PINS = ['X1', 'X2', 'X3', 'X6', 'Y9', 'Y10']
+# Note: Y9/Y10 reserved for I2C, using Y1/Y2 (TIM8 CH1/CH2) instead
+ESC_PINS = ['X1', 'X2', 'X3', 'X6', 'Y1', 'Y2']
 
 # Timer assignments for each pin
-ESC_TIMERS = [5, 5, 5, 2, 2, 2]
+ESC_TIMERS = [5, 5, 5, 2, 8, 8]
 
 # Timer channel assignments
-ESC_CHANNELS = [1, 2, 3, 1, 3, 4]
+ESC_CHANNELS = [1, 2, 3, 1, 1, 2]
 
 # Individual motor trim values (microseconds offset)
 # Adjust these to balance motor thrust

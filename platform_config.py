@@ -24,8 +24,8 @@ PYBOARD_CONFIG = {
         1: {'pin': 'X2', 'timer': 5, 'channel': 2},
         2: {'pin': 'X3', 'timer': 5, 'channel': 3},
         3: {'pin': 'X6', 'timer': 2, 'channel': 1},
-        4: {'pin': 'Y9', 'timer': 2, 'channel': 3},
-        5: {'pin': 'Y10', 'timer': 2, 'channel': 4},
+        4: {'pin': 'Y1', 'timer': 8, 'channel': 1},
+        5: {'pin': 'Y2', 'timer': 8, 'channel': 2},
     },
     
     # RC receiver pins (Input capture)

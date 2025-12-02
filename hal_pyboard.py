@@ -159,7 +159,7 @@ class PyBoardTimer(HALTimer):
         # For now, extract from known configurations
         pin_to_channel = {
             'X1': 1, 'X2': 2, 'X3': 3, 'X6': 1,
-            'Y3': 3, 'Y4': 4, 'Y7': 1, 'Y8': 2, 'Y9': 3, 'Y10': 4
+            'Y1': 1, 'Y2': 2, 'Y3': 3, 'Y4': 4, 'Y7': 1, 'Y8': 2
         }
         return pin_to_channel.get(pin, 1)
     
