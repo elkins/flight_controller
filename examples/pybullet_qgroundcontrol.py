@@ -137,6 +137,15 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
     print(f"  Mode: {'GUI' if gui else 'Headless'}")
     print(f"  Flight pattern: {flight_mode}\n")
     
+    # Start video recording if requested
+    video_log_id = None
+    if args.record:
+        if gui:
+            video_log_id = p.startStateLogging(p.STATE_LOGGING_VIDEO_MP4, args.record)
+            print(f"📹 Recording video to: {args.record}\n")
+        else:
+            print("⚠️  Video recording requires --gui mode\n")
+    
     # Initialize PID controllers (tuned for simulation)
     roll_pid = SimplePID(kp=4.0, ki=0.1, kd=2.0, output_min=-300, output_max=300)
     pitch_pid = SimplePID(kp=4.0, ki=0.1, kd=2.0, output_min=-300, output_max=300)
@@ -229,7 +238,7 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
                 yaw_setpoint = math.degrees(angle) % 360
                 
             elif flight_mode == 'figure8' and elapsed >= 8 and elapsed < duration - 8:
-                # Figure-8 pattern with gentle banking
+                # Figure-8 pattern with very gentle banking
                 pattern_time = elapsed - 8
                 angular_speed = 0.2  # rad/s (slower for stability)
                 angle = angular_speed * pattern_time
@@ -238,8 +247,8 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
                 # Heading follows the path tangent
                 yaw_setpoint = math.degrees(angle * 2) % 360
                 
-                # Gentle coordinated turns
-                roll_setpoint = -2 * math.sin(angle * 2)  # Gentle banking
+                # Very gentle coordinated turns (reduced from ±2° to ±1°)
+                roll_setpoint = -1 * math.sin(angle * 2)  # Minimal banking
                 pitch_setpoint = 0  # Keep level pitch
                 
             elif flight_mode == 'square' and elapsed >= 8 and elapsed < duration - 8:
@@ -447,6 +456,10 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
     
     finally:
         # Cleanup
+        if video_log_id is not None:
+            p.stopStateLogging(video_log_id)
+            print(f"\n✅ Video saved to: {args.record}")
+        
         platform.disconnect()
         print("\n✓ Simulation complete!")
         print(f"  Total time: {time.time() - start_time:.1f}s")
@@ -503,6 +516,13 @@ Before running:
         '--auto-start',
         action='store_true',
         help='Skip the confirmation prompt and start immediately'
+    )
+    
+    parser.add_argument(
+        '--record',
+        type=str,
+        metavar='FILENAME',
+        help='Record video to MP4 file (e.g., flight_demo.mp4)'
     )
     
     args = parser.parse_args()
