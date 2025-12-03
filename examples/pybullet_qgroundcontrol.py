@@ -158,10 +158,11 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
     print("Starting flight simulation...")
     print(f"Duration: {duration}s\n")
     print("Flight sequence:")
-    print("  0-3s:   Pre-flight (disarmed)")
-    print("  3-8s:   Takeoff to 2m")
-    print("  8-end:  Flight pattern")
-    print("  Last 5s: Landing\n")
+    print("  0-3s:     Pre-flight (disarmed)")
+    print("  3-8s:     Takeoff to 1.5m")
+    print("  8-(T-8)s: Flight pattern")
+    print("  (T-8)-(T-3)s: Landing approach (gradual descent)")
+    print("  Last 3s:  Final landing (touch down)\n")
     
     try:
         while time.time() - start_time < duration:
@@ -181,69 +182,108 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
                 armed = False
                 target_altitude = 0.0
                 throttle_base = 1000
+                flight_phase = "PRE-FLIGHT"
             elif elapsed < 8:
-                # Takeoff
+                # Takeoff phase
                 armed = True
                 target_altitude = 1.5
                 throttle_base = 1500  # Increased base throttle for takeoff
-            elif elapsed < duration - 5:
-                # Flight pattern
+                flight_phase = "TAKEOFF"
+            elif elapsed < duration - 8:
+                # Flight pattern phase
                 armed = True
                 target_altitude = 1.5
                 throttle_base = 1500  # Keep higher throttle during flight
-            else:
-                # Landing
+                flight_phase = "PATTERN"
+            elif elapsed < duration - 3:
+                # Landing approach - gradual descent
                 armed = True
-                target_altitude = 0.0
-                throttle_base = 1000
+                landing_time = elapsed - (duration - 8)
+                # Gradual descent over 5 seconds: 1.5m -> 0.2m
+                target_altitude = max(0.2, 1.5 - (landing_time / 5.0) * 1.3)
+                throttle_base = 1100  # Further reduced for better descent
+                flight_phase = f"LANDING({target_altitude:.2f}m)"
+            else:
+                # Final landing - cut throttle when near ground
+                armed = True
+                if position[2] < 0.15:
+                    target_altitude = 0.0
+                    throttle_base = 1000  # Minimal throttle
+                    armed = False  # Disarm on ground
+                    flight_phase = "LANDED"
+                else:
+                    target_altitude = 0.1
+                    throttle_base = 1000  # Minimal throttle for final descent
+                    flight_phase = "FINAL_LANDING"
             
             # Calculate flight pattern setpoints
-            if flight_mode == 'circle' and elapsed >= 8 and elapsed < duration - 5:
-                # Simple stable hover - no movement
+            if flight_mode == 'circle' and elapsed >= 8 and elapsed < duration - 8:
+                # Gentle rotating circle - yaw rotation only
+                pattern_time = elapsed - 8
+                angular_speed = 0.15  # rad/s (slow rotation)
+                angle = pattern_time * angular_speed
+                
+                # Keep level, just rotate heading
                 roll_setpoint = 0
                 pitch_setpoint = 0
-                yaw_setpoint = 0  # Hold heading at 0°
+                yaw_setpoint = math.degrees(angle) % 360
                 
-            elif flight_mode == 'figure8' and elapsed >= 8 and elapsed < duration - 5:
-                # Figure-8 pattern
+            elif flight_mode == 'figure8' and elapsed >= 8 and elapsed < duration - 8:
+                # Figure-8 pattern with gentle banking
                 pattern_time = elapsed - 8
-                radius = 2.5
-                angular_speed = 0.4
+                angular_speed = 0.2  # rad/s (slower for stability)
+                angle = angular_speed * pattern_time
                 
-                target_x = radius * math.sin(angular_speed * pattern_time)
-                target_y = radius * math.sin(2 * angular_speed * pattern_time) / 2
+                # Figure-8 motion: x = sin(t), y = sin(2t)/2
+                # Heading follows the path tangent
+                yaw_setpoint = math.degrees(angle * 2) % 360
                 
-                # Calculate heading from velocity
-                if abs(velocity[0]) > 0.1 or abs(velocity[1]) > 0.1:
-                    yaw_setpoint = math.degrees(math.atan2(velocity[1], velocity[0]))
-                else:
-                    yaw_setpoint = math.degrees(euler[2])
+                # Gentle coordinated turns
+                roll_setpoint = -2 * math.sin(angle * 2)  # Gentle banking
+                pitch_setpoint = 0  # Keep level pitch
                 
-                roll_setpoint = -5 * math.sin(angular_speed * pattern_time)
-                pitch_setpoint = 5 * math.cos(angular_speed * pattern_time)
-                
-            elif flight_mode == 'square' and elapsed >= 8 and elapsed < duration - 5:
-                # Square pattern (simplified with smooth corners)
+            elif flight_mode == 'square' and elapsed >= 8 and elapsed < duration - 8:
+                # Square waypoint pattern with timed legs
                 pattern_time = elapsed - 8
-                side_duration = 10  # seconds per side
-                side = int(pattern_time / side_duration) % 4
+                leg_duration = 8  # seconds per leg
+                current_leg = int(pattern_time / leg_duration) % 4
                 
-                if side == 0:  # North
+                # Smooth transitions between legs
+                if current_leg == 0:  # North leg
                     roll_setpoint = 0
-                    pitch_setpoint = 5
+                    pitch_setpoint = 2
                     yaw_setpoint = 0
-                elif side == 1:  # East
-                    roll_setpoint = 5
+                elif current_leg == 1:  # East leg
+                    roll_setpoint = 2
                     pitch_setpoint = 0
                     yaw_setpoint = 90
-                elif side == 2:  # South
+                elif current_leg == 2:  # South leg
                     roll_setpoint = 0
-                    pitch_setpoint = -5
+                    pitch_setpoint = -2
                     yaw_setpoint = 180
-                else:  # West
-                    roll_setpoint = -5
+                else:  # West leg
+                    roll_setpoint = -2
                     pitch_setpoint = 0
                     yaw_setpoint = 270
+            
+            elif flight_mode == 'waypoint' and elapsed >= 8 and elapsed < duration - 8:
+                # Waypoint navigation - triangle course
+                pattern_time = elapsed - 8
+                waypoint_duration = 10  # seconds per waypoint
+                current_wp = int(pattern_time / waypoint_duration) % 3
+                
+                if current_wp == 0:  # Waypoint 1: Forward
+                    roll_setpoint = 0
+                    pitch_setpoint = 3
+                    yaw_setpoint = 0
+                elif current_wp == 1:  # Waypoint 2: Right
+                    roll_setpoint = 0
+                    pitch_setpoint = 0
+                    yaw_setpoint = 120
+                else:  # Waypoint 3: Return
+                    roll_setpoint = 0
+                    pitch_setpoint = 0
+                    yaw_setpoint = 240
             else:
                 # Hover (default)
                 roll_setpoint = 0
@@ -254,8 +294,13 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
             altitude_error = target_altitude - position[2]
             altitude_correction = alt_pid.update(target_altitude, position[2])
             
-            # Add strong damping based on vertical velocity to prevent overshoot
-            velocity_damping = -velocity[2] * 150  # Negative because velocity[2] is positive when climbing
+            # Smart damping: prevent overshoot during climb, allow descent during landing
+            if elapsed < duration - 8:
+                # During normal flight: strong damping to prevent overshoot
+                velocity_damping = -velocity[2] * 150
+            else:
+                # During landing: only damp upward velocity, don't fight descent
+                velocity_damping = -max(0, velocity[2]) * 80
             
             throttle = throttle_base + int(altitude_correction + velocity_damping)
             
@@ -384,8 +429,8 @@ def run_simulation(duration=120, gui=True, flight_mode='hover', auto_start=False
             # Print status every second
             if loop_count % 10 == 0:
                 status = "ARMED" if armed else "DISARMED"
-                print(f"t={elapsed:5.1f}s [{status}] | "
-                      f"Alt={position[2]:5.2f}m | "
+                print(f"t={elapsed:5.1f}s [{flight_phase:12s}] | "
+                      f"Alt={position[2]:5.2f}m (target={target_altitude:.2f}m) | "
                       f"Roll={math.degrees(euler[0]):6.1f}° "
                       f"Pitch={math.degrees(euler[1]):6.1f}° "
                       f"Yaw={heading:6.1f}° | "
@@ -449,7 +494,7 @@ Before running:
     parser.add_argument(
         '--mode',
         type=str,
-        choices=['hover', 'circle', 'square', 'figure8'],
+        choices=['hover', 'circle', 'square', 'figure8', 'waypoint'],
         default='circle',
         help='Flight pattern mode (default: circle)'
     )

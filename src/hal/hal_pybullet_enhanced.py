@@ -73,11 +73,11 @@ class EnhancedHexacopterPhysics:
     # Motor rotation directions (1=CCW, -1=CW for yaw torque)
     MOTOR_DIRECTIONS = [1, -1, 1, -1, 1, -1]
     
-    # Thrust and torque coefficients (from Crazyflie 2.x)
+    # Thrust and torque coefficients (tuned for simulation)
     # KF: thrust coefficient (N/(rad/s)^2)
     # KM: moment coefficient (N·m/(rad/s)^2)
-    KF = 3.16e-10  # Scaled for hexacopter motors
-    KM = 7.94e-12  # Torque coefficient
+    KF = 3.16e-5  # Further increased for adequate thrust
+    KM = 7.94e-7  # Increased proportionally
     
     # Propeller specifications
     PROP_RADIUS = 0.10  # meters (4-inch props)
