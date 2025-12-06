@@ -103,23 +103,23 @@ class RateController:
     Based on PX4 rate controller architecture.
     """
     def __init__(self):
-        # PID gains for hexacopter - CONSERVATIVE for stability
-        # These are scaled DOWN significantly for the simulation environment
+        # Rate controller PID gains - VERY CONSERVATIVE
+        # Start extremely low to ensure stability, can increase later
         self.roll_rate_pid = SimplePID(
-            kp=0.03, ki=0.01, kd=0.001,
-            output_limits=(-0.3, 0.3),
-            integral_limits=(-0.1, 0.1)
+            kp=0.01, ki=0.002, kd=0.0002,  # Very conservative
+            output_limits=(-0.15, 0.15),
+            integral_limits=(-0.03, 0.03)
         )
         self.pitch_rate_pid = SimplePID(
-            kp=0.03, ki=0.01, kd=0.001,
-            output_limits=(-0.3, 0.3),
-            integral_limits=(-0.1, 0.1)
+            kp=0.01, ki=0.002, kd=0.0002,  # Very conservative
+            output_limits=(-0.15, 0.15),
+            integral_limits=(-0.03, 0.03)
         )
-        # Yaw: Even more conservative
+        # Yaw: Increase gains to prevent slow divergence
         self.yaw_rate_pid = SimplePID(
-            kp=0.02, ki=0.005, kd=0.0,
-            output_limits=(-0.2, 0.2),
-            integral_limits=(-0.05, 0.05)
+            kp=0.015, ki=0.002, kd=0.0,  # Doubled from 0.008
+            output_limits=(-0.1, 0.1),
+            integral_limits=(-0.02, 0.02)
         )
 
     def update(self, rate_setpoint: np.ndarray, current_rate: np.ndarray, dt: float) -> np.ndarray:
@@ -155,11 +155,13 @@ class AttitudeController:
     """
     def __init__(self):
         # P gain: unified for all axes (can be tuned individually if needed)
-        self.kp = 3.0  # Attitude error → rate setpoint
+        # gym-pybullet-drones uses VERY high gains (70000!) for tiny Crazyflie
+        # For our 1.5kg hexacopter with higher inertia, use moderate gains
+        self.kp = 4.0  # Attitude error → rate setpoint
 
-        # Rate limits (safety) - reduced for stability
-        self.max_rate_roll = np.deg2rad(60)    # 60 deg/s (gentle)
-        self.max_rate_pitch = np.deg2rad(60)
+        # Rate limits (safety)
+        self.max_rate_roll = np.deg2rad(90)    # 90 deg/s
+        self.max_rate_pitch = np.deg2rad(90)
         self.max_rate_yaw = np.deg2rad(45)     # 45 deg/s yaw
 
     def update(self, att_setpoint: Union[np.ndarray, None], current_att_quat: np.ndarray,
@@ -204,37 +206,38 @@ class VelocityController:
     Based on PX4 velocity controller.
     """
     def __init__(self):
-        # Horizontal velocity PIDs (X, Y) - GENTLE
+        # Gains from gym-pybullet-drones DSLPIDControl (scaled for hexacopter)
+        # Original CF2X gains: P=[0.4, 0.4, 1.25], I=[0.05, 0.05, 0.05], D=[0.2, 0.2, 0.5]
+        # Scaled down ~2x for larger, heavier hexacopter
+
+        # Horizontal velocity PIDs (X, Y)
         self.vel_x_pid = SimplePID(
-            kp=0.2, ki=0.01, kd=0.1,
-            output_limits=(-2.0, 2.0),  # m/s² (reduced)
-            integral_limits=(-0.5, 0.5)
+            kp=0.2, ki=0.025, kd=0.1,  # From gym-pybullet-drones, scaled
+            output_limits=(-2.0, 2.0),  # m/s² acceleration command
+            integral_limits=(-1.0, 1.0)  # Anti-windup
         )
         self.vel_y_pid = SimplePID(
-            kp=0.2, ki=0.01, kd=0.1,
-            output_limits=(-2.0, 2.0),
-            integral_limits=(-0.5, 0.5)
+            kp=0.2, ki=0.025, kd=0.1,  # From gym-pybullet-drones, scaled
+            output_limits=(-2.0, 2.0),  # m/s² acceleration command
+            integral_limits=(-1.0, 1.0)  # Anti-windup
         )
 
-        # Vertical velocity PID (Z) - More conservative
+        # Vertical velocity PID (Z)
+        # NOTE: The integral term learns the hover thrust automatically!
+        # This adapts to ground effect, battery voltage, weight changes, etc.
         self.vel_z_pid = SimplePID(
-            kp=0.8, ki=0.05, kd=0.4,
-            output_limits=(-3.0, 3.0),  # m/s²
-            integral_limits=(-1.0, 1.0)
+            kp=0.625, ki=0.025, kd=0.25,  # Higher P/D for altitude (from gym-pybullet-drones)
+            output_limits=(-3.0, 3.0),  # m/s² acceleration command
+            integral_limits=(-0.075, 0.075)  # Tight integral limit for altitude
         )
 
         # Limits
-        self.max_tilt = np.deg2rad(25)  # Maximum 25° tilt
+        self.max_tilt = np.deg2rad(20)  # Maximum 20° tilt
 
-        # Calculate hover thrust from physics
-        # Mass = 1.5 kg, g = 9.81 m/s², 6 motors
-        # Total thrust needed = 1.5 * 9.81 = 14.715 N
-        # From hal_pybullet_enhanced.py: MAX_THRUST_PER_MOTOR = KF * (MAX_RPM * 2π/60)²
-        # KF = 3.16e-5, MAX_RPM = 10000
-        # MAX_THRUST_PER_MOTOR = 3.16e-5 * (10000 * 2π/60)² = 3.46 N
-        # Total max thrust = 6 * 3.46 = 20.76 N
-        # Hover thrust ratio = 14.715 / 20.76 = 0.708
-        self.hover_thrust = 0.71  # Normalized thrust to hover
+        # Initial hover thrust estimate (used as feedforward, will be updated)
+        # Start close to empirically known value for faster convergence
+        self.hover_thrust_estimate = 0.3  # Start at 30% throttle (close to known 26.5%)
+        self.hover_thrust_alpha = 0.03  # Slower adaptation rate for stability
 
     def update(self, vel_setpoint: np.ndarray, current_vel: np.ndarray,
                current_yaw: float, dt: float) -> Tuple[np.ndarray, float]:
@@ -254,9 +257,24 @@ class VelocityController:
         accel_y = self.vel_y_pid.update(vel_setpoint[1], current_vel[1], dt)
         accel_z = self.vel_z_pid.update(vel_setpoint[2], current_vel[2], dt)
 
-        # Vertical thrust (hover + accel compensation)
-        thrust = self.hover_thrust + (accel_z / 9.81) * 0.15
-        thrust = np.clip(thrust, 0.1, 0.95)
+        # Vertical thrust calculation
+        # The PID output is acceleration (m/s²), convert to thrust
+        # Thrust needed = (g + accel_z) / max_accel_per_g
+        # For hover: accel_z ≈ 0, so thrust ≈ g/max_accel = hover_thrust
+        # The integral term in vel_z_pid automatically learns hover thrust!
+
+        # Use feedforward hover thrust estimate + PID correction
+        thrust = self.hover_thrust_estimate + (accel_z / 9.81) * 0.4
+        thrust = np.clip(thrust, 0.05, 0.95)
+
+        # Adaptive hover thrust estimation (only when near hover conditions)
+        # Update estimate when velocity is low and not accelerating much
+        if abs(current_vel[2]) < 0.2 and abs(accel_z) < 1.0:
+            # We're approximately hovering - learn the current thrust
+            self.hover_thrust_estimate = (1 - self.hover_thrust_alpha) * self.hover_thrust_estimate + \
+                                        self.hover_thrust_alpha * thrust
+            # Clamp to reasonable range
+            self.hover_thrust_estimate = np.clip(self.hover_thrust_estimate, 0.2, 0.8)
 
         # Rotate horizontal acceleration to body frame
         cos_yaw = np.cos(current_yaw)
@@ -379,9 +397,9 @@ class CascadedMulticopterController:
 
         for i in range(6):
             self.motor_mix[i, 0] = 1.0  # All motors contribute to thrust
-            self.motor_mix[i, 1] = -np.sin(angles[i])  # Roll (Y-axis torque)
-            self.motor_mix[i, 2] = np.cos(angles[i])   # Pitch (X-axis torque)
-            self.motor_mix[i, 3] = (-1) ** (i + 1)     # Yaw (alternating)
+            self.motor_mix[i, 1] = np.sin(angles[i])   # Roll (Y-axis torque) - INVERTED for PyBullet frame
+            self.motor_mix[i, 2] = -np.cos(angles[i])  # Pitch (X-axis torque) - INVERTED for PyBullet frame
+            self.motor_mix[i, 3] = (-1) ** i           # Yaw (alternating) - INVERTED for PyBullet frame
 
     def compute_control(self, state: dict, setpoint: ControlSetpoint, dt: float = None) -> np.ndarray:
         """
